@@ -3,7 +3,10 @@ const ffmpeg = require("fluent-ffmpeg");
 const axios = require("axios");
 const { v4: uuidv4 } = require("uuid");
 const fs = require("fs");
+
 const path = require("path");
+const ffmpegPath = require("child_process").execSync("which ffmpeg").toString().trim();
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 const app = express();
 app.use(express.json());
