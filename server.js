@@ -158,11 +158,11 @@ app.post("/merge", checkSecret, async (req, res) => {
 
 // ─── Health Check ────────────────────────────────────────────────
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", message: "Video Merge API চালু আছে ✅" });
+  res.json({ status: "ok", message: "Video Merge API চালু ✅" });
 });
 
 // ─── সার্ভার স্টার্ট ─────────────────────────────────────────────
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log(`\n🎬 Video Merge API চালু হয়েছে → http://localhost:${PORT}`);
+  console.log(`\n🎬 Video Merge API চালু  → http://localhost:${PORT}`);
 });
