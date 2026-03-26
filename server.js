@@ -116,7 +116,10 @@ app.post("/merge", async (req, res) => {
     cleanup(tempFiles);
 
     // ─── ৫. রেসপন্স পাঠাও ───────────────────────────────────────
-    const HOST = `${req.protocol}://${req.get("host")}`;
+
+    const HOST = `https://${req.get("host")}`;
+
+
     const downloadUrl = `${HOST}/output/${jobId}_merged.mp4`;
 
     console.log(`[${jobId}] ✅ সম্পন্ন! → ${downloadUrl}`);
