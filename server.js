@@ -20,7 +20,23 @@ app.use("/output", express.static(OUTPUT_DIR));
 
 // ─── ভিডিও ডাউনলোড হেল্পার ──────────────────────────────────────
 async function downloadVideo(url, destPath) {
-  const response = await axios.get(url, { responseType: "stream" });
+  // Google Drive URL fix
+  const gdMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (gdMatch) {
+    url = `https://drive.google.com/uc?export=download&id=${gdMatch[1]}&confirm=t`;
+  }
+
+  const response = await axios({
+    method: "get",
+    url: url,
+    responseType: "stream",
+    maxRedirects: 10,
+    timeout: 120000,
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    },
+  });
+
   return new Promise((resolve, reject) => {
     const writer = fs.createWriteStream(destPath);
     response.data.pipe(writer);
@@ -126,7 +142,7 @@ app.get("/health", (req, res) => {
 });
 
 // ─── সার্ভার স্টার্ট ─────────────────────────────────────────────
-const PORT = process.env.PORT || 8080 ;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`\n🎬 Video Merge API চালু হয়েছে → http://localhost:${PORT}`);
   console.log(`📋 Test: GET  http://localhost:${PORT}/health`);
