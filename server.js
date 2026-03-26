@@ -126,7 +126,7 @@ app.get("/health", (req, res) => {
 });
 
 // ─── সার্ভার স্টার্ট ─────────────────────────────────────────────
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080 ;
 app.listen(PORT, () => {
   console.log(`\n🎬 Video Merge API চালু হয়েছে → http://localhost:${PORT}`);
   console.log(`📋 Test: GET  http://localhost:${PORT}/health`);
