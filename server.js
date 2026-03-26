@@ -3,13 +3,23 @@ const ffmpeg = require("fluent-ffmpeg");
 const axios = require("axios");
 const { v4: uuidv4 } = require("uuid");
 const fs = require("fs");
-
 const path = require("path");
 const ffmpegPath = require("child_process").execSync("which ffmpeg").toString().trim();
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 const app = express();
 app.use(express.json());
+
+// ─── API Secret (Security) ───────────────────────────────────────
+const API_SECRET = process.env.API_SECRET || "change-this-secret";
+
+function checkSecret(req, res, next) {
+  const secret = req.headers["agentatlasvideomargeapi123"] || req.query.secret;
+  if (secret !== API_SECRET) {
+    return res.status(401).json({ success: false, error: "Unauthorized" });
+  }
+  next();
+}
 
 // ─── ফোল্ডার তৈরি ───────────────────────────────────────────────
 const TEMP_DIR = path.join(__dirname, "temp");
@@ -18,12 +28,11 @@ const OUTPUT_DIR = path.join(__dirname, "output");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-// ─── Static ফাইল serve (ডাউনলোড লিংকের জন্য) ──────────────────
+// ─── Static ফাইল serve ──────────────────────────────────────────
 app.use("/output", express.static(OUTPUT_DIR));
 
 // ─── ভিডিও ডাউনলোড হেল্পার ──────────────────────────────────────
 async function downloadVideo(url, destPath) {
-  // Google Drive URL fix
   const gdMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
   if (gdMatch) {
     url = `https://drive.google.com/uc?export=download&id=${gdMatch[1]}&confirm=t`;
@@ -48,25 +57,23 @@ async function downloadVideo(url, destPath) {
   });
 }
 
-// ─── টেম্প ফাইল ক্লিনআপ হেল্পার ─────────────────────────────────
+// ─── ক্লিনআপ হেল্পার ─────────────────────────────────────────────
 function cleanup(files) {
   files.forEach((f) => {
-    if (fs.existsSync(f)) fs.unlinkSync(f);
+    try { if (fs.existsSync(f)) fs.unlinkSync(f); } catch (e) { }
   });
 }
 
 // ────────────────────────────────────────────────────────────────
-// POST /merge
-// Body: { "videos": ["https://...", "https://...", ...] }
+// POST /merge  (protected by API secret)
 // ────────────────────────────────────────────────────────────────
-app.post("/merge", async (req, res) => {
+app.post("/merge", checkSecret, async (req, res) => {
   const { videos } = req.body;
 
-  // ভ্যালিডেশন
   if (!videos || !Array.isArray(videos) || videos.length < 2) {
     return res.status(400).json({
       success: false,
-      error: "কমপক্ষে ২টি ভিডিও URL দিতে হবে। Example: { videos: ['url1', 'url2'] }",
+      error: "কমপক্ষে ২টি ভিডিও URL দিতে হবে।",
     });
   }
 
@@ -78,35 +85,40 @@ app.post("/merge", async (req, res) => {
   console.log(`[${jobId}] শুরু হচ্ছে — ${videos.length}টি ভিডিও`);
 
   try {
-    // ─── ১. সব ভিডিও ডাউনলোড ───────────────────────────────────
+    // ─── ১. ডাউনলোড ─────────────────────────────────────────────
     console.log(`[${jobId}] ডাউনলোড শুরু...`);
     for (let i = 0; i < videos.length; i++) {
-      const ext = path.extname(new URL(videos[i]).pathname) || ".mp4";
+      let ext = ".mp4";
+      try { ext = path.extname(new URL(videos[i]).pathname) || ".mp4"; } catch (e) { }
       const tempPath = path.join(TEMP_DIR, `${jobId}_clip${i}${ext}`);
       await downloadVideo(videos[i], tempPath);
       tempFiles.push(tempPath);
       console.log(`[${jobId}] ✓ ক্লিপ ${i + 1} ডাউনলোড হয়েছে`);
     }
 
-    // ─── ২. FFmpeg concat list তৈরি ─────────────────────────────
+    // ─── ২. concat list ──────────────────────────────────────────
     const listContent = tempFiles
       .map((f) => `file '${f.replace(/'/g, "'\\''")}'`)
       .join("\n");
     fs.writeFileSync(listFilePath, listContent);
     tempFiles.push(listFilePath);
 
-    // ─── ৩. FFmpeg দিয়ে জোড়া লাগানো ────────────────────────────
+    // ─── ৩. FFmpeg merge (black screen + frame drop fix) ─────────
     console.log(`[${jobId}] ভিডিও জোড়া লাগানো শুরু...`);
     await new Promise((resolve, reject) => {
       ffmpeg()
         .input(listFilePath)
         .inputOptions(["-f concat", "-safe 0"])
-        .outputOptions(["-c copy"])
+        .outputOptions([
+          "-c:v libx264",
+          "-c:a aac",
+          "-vsync cfr",
+          "-avoid_negative_ts make_zero",
+          "-fflags +genpts",
+        ])
         .output(outputFile)
-        .on("start", (cmd) => console.log(`[${jobId}] FFmpeg: ${cmd}`))
-        .on("progress", (p) =>
-          console.log(`[${jobId}] Progress: ${Math.round(p.percent || 0)}%`)
-        )
+        .on("start", () => console.log(`[${jobId}] FFmpeg started`))
+        .on("progress", (p) => console.log(`[${jobId}] Progress: ${Math.round(p.percent || 0)}%`))
         .on("end", resolve)
         .on("error", reject)
         .run();
@@ -115,13 +127,17 @@ app.post("/merge", async (req, res) => {
     // ─── ৪. টেম্প ফাইল মুছে ফেলো ───────────────────────────────
     cleanup(tempFiles);
 
-    // ─── ৫. রেসপন্স পাঠাও ───────────────────────────────────────
+    // ─── ৫. ২৪ ঘন্টা পর auto-delete ────────────────────────────
+    setTimeout(() => {
+      if (fs.existsSync(outputFile)) {
+        fs.unlinkSync(outputFile);
+        console.log(`[${jobId}] 🗑️ Auto-deleted after 24 hours`);
+      }
+    }, 24 * 60 * 60 * 1000);
 
+    // ─── ৬. রেসপন্স ─────────────────────────────────────────────
     const HOST = `https://${req.get("host")}`;
-
-
     const downloadUrl = `${HOST}/output/${jobId}_merged.mp4`;
-
     console.log(`[${jobId}] ✅ সম্পন্ন! → ${downloadUrl}`);
 
     return res.json({
@@ -131,14 +147,12 @@ app.post("/merge", async (req, res) => {
       clipsCount: videos.length,
       message: "ভিডিও সফলভাবে জোড়া লাগানো হয়েছে!",
     });
+
   } catch (err) {
     cleanup(tempFiles);
     if (fs.existsSync(outputFile)) fs.unlinkSync(outputFile);
     console.error(`[${jobId}] ❌ Error:`, err.message);
-    return res.status(500).json({
-      success: false,
-      error: err.message,
-    });
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -151,6 +165,4 @@ app.get("/health", (req, res) => {
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`\n🎬 Video Merge API চালু হয়েছে → http://localhost:${PORT}`);
-  console.log(`📋 Test: GET  http://localhost:${PORT}/health`);
-  console.log(`🔗 Merge: POST http://localhost:${PORT}/merge\n`);
 });
