@@ -11,10 +11,10 @@ const app = express();
 app.use(express.json());
 
 // ─── API Secret (Security) ───────────────────────────────────────
-const API_SECRET = process.env.API_SECRET || "change-this-secret";
+const API_SECRET = process.env.API_SECRET || "agentatlasvideomargeapi123";
 
 function checkSecret(req, res, next) {
-  const secret = req.headers["agentatlasvideomargeapi123"] || req.query.secret;
+  const secret = req.headers["x-api-secret"] || req.query.secret;
   if (secret !== API_SECRET) {
     return res.status(401).json({ success: false, error: "Unauthorized" });
   }
